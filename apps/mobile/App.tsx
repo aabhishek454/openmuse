@@ -1,107 +1,34 @@
-import { CopilotKitProvider } from "@copilotkit/react-native/headless";
 import { StatusBar } from "expo-status-bar";
-import {
-  Bell,
-  Check,
-  Lightbulb,
-  type LucideIcon,
-  Menu,
-  MessageCircle,
-  PanelsTopLeft,
-  Shapes,
-  SquareCheck,
-  X,
-} from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  AppState,
-  Pressable,
-  ScrollView,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, SafeAreaView as RNSafeAreaView, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import type { Section, Workspace } from "../../packages/domain/src";
-import {
-  AgentActivityScreen,
-  AgentStatus,
-  AppsScreen,
-  GoalsScreen,
-  IdeasScreen,
-} from "./src/agent-ui";
-import { AgentWorkspaceProvider, useAgentWorkspace } from "./src/agent-workspace";
-import { createSession, getApiUrl, loadSavedApiUrl, MuseApi, saveApiUrl } from "./src/api";
-import { ChatScreen, WorkspaceTools } from "./src/chat";
-import { ComputerEntry } from "./src/computer";
-import { ComputerDraftProvider } from "./src/computer-drafts";
-import { Details } from "./src/details";
-import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./src/screens";
-import { ThreadsProvider, ThreadsSheet, useMuseThread } from "./src/threads";
-import { Button, Card, colors, ErrorNotice, Field, IconButton, Mascot, s } from "./src/ui";
-import { type Detail, useWorkspace, WorkspaceContext } from "./src/workspace";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, type ApiSettings } from "./src/settings";
+import { StandaloneChat } from "./src/standalone-chat";
+import { Button, Card, colors, Field, Mascot, s } from "./src/ui";
 
-const nav: { id: Section; label: string; icon: LucideIcon }[] = [
-  { id: "chat", label: "Chat", icon: MessageCircle },
-  { id: "activity", label: "Activity", icon: PanelsTopLeft },
-  { id: "ideas", label: "Ideas", icon: Lightbulb },
-  { id: "goals", label: "Goals", icon: SquareCheck },
-  { id: "apps", label: "Apps", icon: Shapes },
-];
-const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
-  activity: { title: "Activity", subtitle: "Plans, progress, decisions and results." },
-  ideas: { title: "Ideas", subtitle: "Useful next steps, grounded in your world." },
-  goals: {
-    title: "Goals",
-    subtitle: "Longer-term goals and things to keep an eye on.",
-  },
-  apps: {
-    title: "Apps",
-    subtitle: "Connections, capabilities and what your agent remembers.",
-  },
-  connections: { title: "Apps", subtitle: "Connections and capabilities." },
-  mail: { title: "Mail", subtitle: "The conversations behind your work." },
-  calendar: { title: "Calendar", subtitle: "Time for what matters." },
-  browser: { title: "Browser", subtitle: "Your connected browsing sessions." },
-  files: { title: "Files", subtitle: "Documents, forms and filled copies." },
-};
 export default function App() {
-  const [token, setToken] = useState("");
-  const [accessKey, setAccessKey] = useState("");
-  const [serverUrl, setServerUrl] = useState(getApiUrl());
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState("");
-  const connect = useCallback(async (key?: string) => {
-    setBusy(true);
-    setError("");
-    try {
-      const session = await createSession(key);
-      setToken(session.token);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const [settings, setSettings] = useState<ApiSettings | undefined>();
+  const [ready, setReady] = useState(false);
+  const [editing, setEditing] = useState(false);
+
   useEffect(() => {
-    void (async () => {
-      await loadSavedApiUrl();
-      setServerUrl(getApiUrl());
-      void connect();
-    })();
-  }, [connect]);
-  return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
-      {token ? (
-        <CopilotKitProvider
-          runtimeUrl={`${getApiUrl()}/api/copilotkit`}
-          headers={{ Authorization: `Bearer ${token}` }}
-        >
-          <WorkspaceApp token={token} />
-        </CopilotKitProvider>
-      ) : (
+    void loadSettings().then((loaded) => {
+      setSettings(loaded);
+      setReady(true);
+    });
+  }, []);
+
+  if (!ready || !settings)
+    return (
+      <RNSafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+        <ActivityIndicator color={colors.blueDark} style={{ marginTop: 120 }} />
+      </RNSafeAreaView>
+    );
+
+  if (editing || !settings.apiKey)
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
         <SafeAreaView
           style={{
             flex: 1,
@@ -111,439 +38,110 @@ export default function App() {
             padding: 24,
           }}
         >
-          <View style={{ width: "100%", maxWidth: 420, gap: 22, alignItems: "center" }}>
-            <Mascot size={72} />
-            <Text
-              style={{ fontSize: 32, color: colors.text, letterSpacing: -1, fontWeight: "500" }}
-            >
-              Welcome to OpenMuse.
-            </Text>
-            <Text style={[s.muted, { textAlign: "center" }]}>A little room for your day.</Text>
-            {busy ? (
-              <ActivityIndicator color={colors.blueDark} />
-            ) : (
-              <Card style={{ width: "100%" }}>
-                <ErrorNotice error={error} />
-                <Field
-                  label="Server address"
-                  value={serverUrl}
-                  onChangeText={setServerUrl}
-                  placeholder="http://192.168.1.5:8787"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-                <Field
-                  label="Workspace access key"
-                  value={accessKey}
-                  onChangeText={setAccessKey}
-                  secureTextEntry
-                  placeholder="Required for a live workspace"
-                />
-                <Button
-                  primary
-                  onPress={() =>
-                    void saveApiUrl(serverUrl).then(() => connect(accessKey || undefined))
-                  }
-                >
-                  Open workspace
-                </Button>
-                <Text style={[s.small, { marginTop: 15 }]}>
-                  Local workspaces open without a key. Make sure your OpenMuse server is running at{" "}
-                  {serverUrl}.
-                </Text>
-              </Card>
-            )}
-          </View>
+          <ScrollView
+            style={{ width: "100%" }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <SettingsScreen
+              initial={settings}
+              canCancel={!!settings.apiKey}
+              onDone={(next) => {
+                setSettings(next);
+                setEditing(false);
+              }}
+            />
+          </ScrollView>
         </SafeAreaView>
-      )}
+      </SafeAreaProvider>
+    );
+
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+        <StandaloneChat settings={settings} onOpenSettings={() => setEditing(true)} />
+      </SafeAreaView>
     </SafeAreaProvider>
   );
 }
-function WorkspaceApp({ token }: { token: string }) {
-  const api = useMemo(() => new MuseApi(token), [token]);
-  const [workspace, setWorkspace] = useState<Workspace>();
-  const [section, setSection] = useState<Section>("chat");
-  const [detail, setDetail] = useState<Detail>();
-  const [toast, setToast] = useState("");
-  const [error, setError] = useState("");
-  const [prompt, setPrompt] = useState<{ id: number; text: string }>();
-  const refresh = useCallback(async () => {
-    const snapshot = await api.request<Workspace>("/api/workspace");
-    setWorkspace(snapshot);
-    setError("");
-  }, [api]);
-  useEffect(() => {
-    void refresh().catch((e) => setError(String(e)));
-  }, [refresh]);
-  useEffect(() => {
-    const listener = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh().catch((e) => setError(String(e)));
-    });
-    return () => listener.remove();
-  }, [refresh]);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 5500);
-    return () => clearTimeout(timer);
-  }, [toast]);
-  const navigate = useCallback(
-    (next: Section) =>
-      setSection(next === "today" ? "chat" : next === "connections" ? "apps" : next),
-    [],
-  );
-  const open = useCallback((next: Detail) => setDetail(next), []);
-  const close = useCallback(() => setDetail(undefined), []);
-  const ask = useCallback((text: string) => {
-    setPrompt({ id: Date.now(), text });
-    setSection("chat");
-  }, []);
-  if (!workspace)
-    return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          backgroundColor: colors.canvas,
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-          gap: 18,
-        }}
-      >
-        <Mascot size={56} />
-        {error ? (
-          <>
-            <ErrorNotice error={error} />
-            <Button onPress={() => void refresh().catch((e) => setError(String(e)))}>
-              Try again
-            </Button>
-          </>
-        ) : (
-          <>
-            <ActivityIndicator color={colors.blueDark} />
-            <Text style={s.muted}>Opening your workspace…</Text>
-          </>
-        )}
-      </SafeAreaView>
-    );
-  return (
-    <WorkspaceContext.Provider
-      value={{ workspace, api, section, navigate, refresh, open, close, notify: setToast, ask }}
-    >
-      <AgentWorkspaceProvider>
-        <ComputerDraftProvider key={token}>
-          <ThreadsProvider>
-            <WorkspaceShell
-              detail={detail}
-              toast={toast}
-              clearToast={() => setToast("")}
-              error={error}
-              prompt={prompt}
-            />
-          </ThreadsProvider>
-        </ComputerDraftProvider>
-      </AgentWorkspaceProvider>
-    </WorkspaceContext.Provider>
-  );
-}
-function WorkspaceShell({
-  detail,
-  toast,
-  clearToast,
-  error,
-  prompt,
+
+function SettingsScreen({
+  initial,
+  canCancel,
+  onDone,
 }: {
-  detail?: Detail;
-  toast: string;
-  clearToast: () => void;
-  error: string;
-  prompt?: { id: number; text: string };
+  initial: ApiSettings;
+  canCancel: boolean;
+  onDone: (next: ApiSettings) => void;
 }) {
-  const { workspace, section, navigate, open } = useWorkspace();
-  const { data } = useAgentWorkspace();
-  const {
-    selection,
-    visited,
-    mainId,
-    loading: threadsLoading,
-    error: threadsError,
-    retry: retryThreads,
-    enabled: richThreads,
-  } = useMuseThread();
-  const [threadsOpen, setThreadsOpen] = useState(false);
-  const { width } = useWindowDimensions();
-  const desktop = width >= 900;
-  const pending =
-    (data?.notifications.filter((n) => !n.read).length || 0) +
-    workspace.actions.filter((a) => a.status === "awaiting_review").length;
-  const activeTask =
-    data?.tasks.find(
-      (task) => task.status === "waiting_approval" || task.status === "waiting_input",
-    ) || data?.tasks.find((task) => task.status === "running");
-  const agentName = data?.identity.name || "OpenMuse";
-  const status = activeTask
-    ? activeTask.status === "waiting_approval"
-      ? `Ready to review · ${activeTask.title}`
-      : activeTask.status === "waiting_input"
-        ? `Needs your input · ${activeTask.title}`
-        : activeTask.plan.find((step) => step.status === "running")?.title || activeTask.title
-    : data?.tasks.some((task) => task.status === "queued")
-      ? "Picking up your next task…"
-      : "Here when you need me";
-  const title = titles[section] || titles.apps;
-  const Screen =
-    section === "mail"
-      ? MailScreen
-      : section === "calendar"
-        ? CalendarScreen
-        : section === "browser"
-          ? BrowserScreen
-          : section === "files"
-            ? FilesScreen
-            : section === "activity"
-              ? AgentActivityScreen
-              : section === "ideas"
-                ? IdeasScreen
-                : section === "goals"
-                  ? GoalsScreen
-                  : AppsScreen;
-  const utility = ["mail", "calendar", "browser", "files"].includes(section);
+  const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
+  const [apiKey, setApiKey] = useState(initial.apiKey);
+  const [model, setModel] = useState(initial.model);
+  const trimmedKey = apiKey.trim();
   return (
-    <>
-      <WorkspaceTools />
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={["top", "bottom"]}>
-        <View style={{ flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" }}>
-          <View
-            style={{
-              height: desktop ? 146 : 122,
-              paddingTop: desktop ? 14 : 2,
-              marginHorizontal: 20,
-            }}
-          >
-            <View style={{ position: "absolute", left: 0, top: 16 }}>
-              <IconButton
-                icon={Menu}
-                label="Open conversations and menu"
-                onPress={() => setThreadsOpen(true)}
-              />
-            </View>
-            <View style={{ alignItems: "center", gap: 1 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${agentName} activity and approvals`}
-                onPress={() => navigate("activity")}
-                style={({ pressed }) => ({
-                  alignItems: "center",
-                  maxWidth: "70%",
-                  opacity: pressed ? 0.65 : 1,
-                })}
-              >
-                <Mascot size={desktop ? 58 : 49} variant={data?.identity.avatar} />
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: colors.text,
-                    letterSpacing: -0.4,
-                  }}
-                >
-                  {agentName}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={{ fontSize: 11, color: colors.muted, marginBottom: 6 }}
-                >
-                  {status}
-                </Text>
-              </Pressable>
-              {section === "chat" && <ComputerEntry />}
-            </View>
-            <View style={{ position: "absolute", right: 0, top: 16 }}>
-              <IconButton
-                icon={Bell}
-                label={`Notifications, ${pending} unread or pending`}
-                onPress={() => open({ type: "notifications" })}
-              />
-              {pending > 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 4,
-                    position: "absolute",
-                    top: 7,
-                    right: 9,
-                    backgroundColor: colors.blueDark,
-                  }}
-                />
-              )}
-            </View>
-          </View>
-          <View style={{ flex: 1, minHeight: 0 }}>
-            {section !== "chat" && (
-              <ScrollView
-                key={section}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: desktop ? 42 : 22, paddingBottom: 28 }}
-                keyboardShouldPersistTaps="handled"
-              >
-                {utility && (
-                  <Button
-                    small
-                    style={{ alignSelf: "flex-start", marginBottom: 18 }}
-                    onPress={() => navigate("apps")}
-                  >
-                    Back to Apps
-                  </Button>
-                )}
-                <Text style={[s.title, { fontSize: 25, marginBottom: 22 }]}>{title?.title}</Text>
-                <ErrorNotice error={error} />
-                <Screen />
-              </ScrollView>
-            )}
-            <View
-              style={{
-                display: section === "chat" ? "flex" : "none",
-                flex: 1,
-                paddingHorizontal: desktop ? 42 : 17,
-              }}
-            >
-              <AgentStatus />
-              {richThreads ? (
-                <>
-                  <ErrorNotice error={threadsError} />
-                  {threadsError ? (
-                    <Button onPress={retryThreads}>Retry main chat</Button>
-                  ) : threadsLoading ? (
-                    <ActivityIndicator color={colors.blueDark} />
-                  ) : null}
-                  {!threadsLoading && selection.id !== mainId && (
-                    <Text style={[s.small, { textAlign: "center", marginBottom: 8 }]}>
-                      Side chat
-                    </Text>
-                  )}
-                  {visited.map((thread) => (
-                    <View
-                      key={thread.id}
-                      style={{ display: selection.id === thread.id ? "flex" : "none", flex: 1 }}
-                    >
-                      <ChatScreen
-                        thread={thread}
-                        active={section === "chat" && selection.id === thread.id}
-                        prompt={selection.id === thread.id ? prompt : undefined}
-                      />
-                    </View>
-                  ))}
-                </>
-              ) : (
-                <ChatScreen prompt={prompt} active={section === "chat"} />
-              )}
-            </View>
-          </View>
-          <View
-            style={{
-              paddingHorizontal: 22,
-              paddingTop: 10,
-              paddingBottom: desktop ? 22 : 7,
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                width: "100%",
-                maxWidth: 370,
-                padding: 5,
-                backgroundColor: "#FFF",
-                borderRadius: 40,
-                shadowColor: "#132631",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.07,
-                shadowRadius: 18,
-                elevation: 3,
-                borderWidth: 1,
-                borderColor: "#F8F8F8",
-              }}
-            >
-              {nav.map((item) => {
-                const active = section === item.id || (item.id === "apps" && utility);
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="tab"
-                    accessibilityLabel={item.label}
-                    accessibilityState={{ selected: active }}
-                    onPress={() => navigate(item.id)}
-                    style={{
-                      flex: 1,
-                      height: 47,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: active ? "#F0F1F2" : "transparent",
-                      borderRadius: 28,
-                    }}
-                  >
-                    <item.icon size={23} strokeWidth={1.8} color={colors.text} />
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </View>
-        {!!toast && (
-          <View
-            pointerEvents="box-none"
-            style={{ position: "absolute", bottom: 94, left: 20, right: 20, alignItems: "center" }}
-          >
-            <View
-              style={[
-                s.row,
-                {
-                  gap: 10,
-                  padding: 14,
-                  backgroundColor: colors.text,
-                  borderRadius: 20,
-                  maxWidth: 560,
-                },
-              ]}
-            >
-              <Check size={16} color={colors.blue} />
-              <Text style={{ color: "#FFF", fontSize: 13, flexShrink: 1 }}>{toast}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Dismiss notification"
-                onPress={clearToast}
-              >
-                <X size={16} color="#FFF" />
-              </Pressable>
-            </View>
-          </View>
+    <View style={{ width: "100%", maxWidth: 420, alignSelf: "center", gap: 22, alignItems: "center" }}>
+      <Mascot size={72} />
+      <Text style={{ fontSize: 32, color: colors.text, letterSpacing: -1, fontWeight: "500" }}>
+        Welcome to OpenMuse.
+      </Text>
+      <Text style={[s.muted, { textAlign: "center" }]}>A little room for your day.</Text>
+      <Card style={{ width: "100%" }}>
+        <Field
+          label="API base URL"
+          value={baseUrl}
+          onChangeText={setBaseUrl}
+          placeholder="https://openrouter.ai/api/v1"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+        <Field
+          label="API key"
+          value={apiKey}
+          onChangeText={setApiKey}
+          placeholder="sk-or-v1-…"
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <Field
+          label="Model"
+          value={model}
+          onChangeText={setModel}
+          placeholder="openrouter/auto"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Button
+          primary
+          disabled={!trimmedKey || !baseUrl.trim()}
+          onPress={() =>
+            void saveSettings({
+              baseUrl: baseUrl.trim(),
+              apiKey: trimmedKey,
+              model: model.trim(),
+            }).then(() =>
+              onDone({
+                baseUrl: baseUrl.trim(),
+                apiKey: trimmedKey,
+                model: model.trim() || DEFAULT_SETTINGS.model,
+              }),
+            )
+          }
+        >
+          Start chatting
+        </Button>
+        {canCancel && (
+          <Button small style={{ marginTop: 10 }} onPress={() => onDone(initial)}>
+            Cancel
+          </Button>
         )}
-        {threadsOpen && <ThreadsSheet onClose={() => setThreadsOpen(false)} />}
-        {detail && (
-          <Details
-            key={
-              detail.type === "task"
-                ? detail.taskId
-                : detail.type === "file"
-                  ? detail.file.id
-                  : detail.type === "browser"
-                    ? detail.browser.id
-                    : detail.type === "mail"
-                      ? detail.mail.id
-                      : detail.type === "review"
-                        ? detail.action.id
-                        : detail.type === "email"
-                          ? JSON.stringify(detail.draft)
-                          : detail.type === "event"
-                            ? detail.event?.id || "event-new"
-                            : detail.type
-            }
-            detail={detail}
-          />
-        )}
-      </SafeAreaView>
-    </>
+        <Text style={[s.small, { marginTop: 15 }]}>
+          Works with OpenRouter (openrouter.ai/keys) and any OpenAI-compatible API — just paste the base
+          URL, your key, and a model name. Everything stays on this phone.
+        </Text>
+      </Card>
+    </View>
   );
 }
