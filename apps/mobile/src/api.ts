@@ -1,14 +1,44 @@
 import { Platform } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
 
-export const API_URL = (
+let apiBaseUrl = (
   process.env.EXPO_PUBLIC_API_URL ||
   (Platform.OS === "android" ? "http://10.0.2.2:8787" : "http://localhost:8787")
 ).replace(/\/$/, "");
 
+const serverUrlFile = `${FileSystem.documentDirectory ?? ""}openmuse-server-url.txt`;
+
+export function getApiUrl() {
+  return apiBaseUrl;
+}
+
+export function setApiUrl(url: string) {
+  const trimmed = url.trim().replace(/\/$/, "");
+  if (trimmed) apiBaseUrl = trimmed;
+}
+
+export async function loadSavedApiUrl() {
+  try {
+    const saved = await FileSystem.readAsStringAsync(serverUrlFile);
+    setApiUrl(saved);
+  } catch {
+    // No saved server URL yet; keep the default.
+  }
+}
+
+export async function saveApiUrl(url: string) {
+  setApiUrl(url);
+  try {
+    await FileSystem.writeAsStringAsync(serverUrlFile, apiBaseUrl);
+  } catch {
+    // Saving is best effort; the URL still applies for this session.
+  }
+}
+
 export class MuseApi {
   constructor(readonly token: string) {}
   async request<T>(path: string, body?: unknown, method?: string): Promise<T> {
-    const response = await fetch(`${API_URL}${path}`, {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
       method: method ?? (body === undefined ? "GET" : "POST"),
       headers: {
         Authorization: `Bearer ${this.token}`,
@@ -26,14 +56,14 @@ export class MuseApi {
     return payload;
   }
   url(path: string) {
-    return path.startsWith("http") ? path : `${API_URL}${path}`;
+    return path.startsWith("http") ? path : `${apiBaseUrl}${path}`;
   }
 }
 
 export async function createSession(
   accessKey?: string,
 ): Promise<{ token: string; mode: "sample" | "live" }> {
-  const response = await fetch(`${API_URL}/api/session`, {
+  const response = await fetch(`${apiBaseUrl}/api/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ accessKey }),

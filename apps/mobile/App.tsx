@@ -32,7 +32,7 @@ import {
   IdeasScreen,
 } from "./src/agent-ui";
 import { AgentWorkspaceProvider, useAgentWorkspace } from "./src/agent-workspace";
-import { API_URL, createSession, MuseApi } from "./src/api";
+import { createSession, getApiUrl, loadSavedApiUrl, MuseApi, saveApiUrl } from "./src/api";
 import { ChatScreen, WorkspaceTools } from "./src/chat";
 import { ComputerEntry } from "./src/computer";
 import { ComputerDraftProvider } from "./src/computer-drafts";
@@ -69,6 +69,7 @@ const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
 export default function App() {
   const [token, setToken] = useState("");
   const [accessKey, setAccessKey] = useState("");
+  const [serverUrl, setServerUrl] = useState(getApiUrl());
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const connect = useCallback(async (key?: string) => {
@@ -84,14 +85,18 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
-    void connect();
+    void (async () => {
+      await loadSavedApiUrl();
+      setServerUrl(getApiUrl());
+      void connect();
+    })();
   }, [connect]);
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {token ? (
         <CopilotKitProvider
-          runtimeUrl={`${API_URL}/api/copilotkit`}
+          runtimeUrl={`${getApiUrl()}/api/copilotkit`}
           headers={{ Authorization: `Bearer ${token}` }}
         >
           <WorkspaceApp token={token} />
@@ -120,18 +125,32 @@ export default function App() {
               <Card style={{ width: "100%" }}>
                 <ErrorNotice error={error} />
                 <Field
+                  label="Server address"
+                  value={serverUrl}
+                  onChangeText={setServerUrl}
+                  placeholder="http://192.168.1.5:8787"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <Field
                   label="Workspace access key"
                   value={accessKey}
                   onChangeText={setAccessKey}
                   secureTextEntry
                   placeholder="Required for a live workspace"
                 />
-                <Button primary onPress={() => void connect(accessKey || undefined)}>
+                <Button
+                  primary
+                  onPress={() =>
+                    void saveApiUrl(serverUrl).then(() => connect(accessKey || undefined))
+                  }
+                >
                   Open workspace
                 </Button>
                 <Text style={[s.small, { marginTop: 15 }]}>
                   Local workspaces open without a key. Make sure your OpenMuse server is running at{" "}
-                  {API_URL}.
+                  {serverUrl}.
                 </Text>
               </Card>
             )}
