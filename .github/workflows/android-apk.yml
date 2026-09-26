@@ -34,6 +34,15 @@ jobs:
           CI: 'true'
         run: pnpm --dir apps/mobile exec expo prebuild --platform android --no-install
 
+      - name: Create signing keystore
+        run: |
+          mkdir -p $HOME/.android
+          keytool -genkeypair -v -storetype PKCS12 \
+            -keystore $HOME/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build release APK (debug-signed)
         working-directory: apps/mobile/android
         run: |
