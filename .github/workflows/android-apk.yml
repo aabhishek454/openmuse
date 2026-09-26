@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Point screens.tsx at the configurable API URL
+        run: |
+          sed -i 's|import { API_URL } from "./api";|import { getApiUrl } from "./api";|' apps/mobile/src/screens.tsx
+          sed -i 's|`${API_URL}/api/files`|`${getApiUrl()}/api/files`|' apps/mobile/src/screens.tsx
+          grep -q 'getApiUrl()}/api/files' apps/mobile/src/screens.tsx
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -27,6 +33,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --dir apps/mobile typecheck
 
       - name: Expo prebuild (Android)
         env:
